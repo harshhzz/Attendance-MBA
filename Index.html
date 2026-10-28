@@ -1,0 +1,690 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <title>GeoAttend — ITM GIDA Campus Attendance Portal</title>
+  <?!= include('Styles'); ?>
+</head>
+<body>
+  <a href="#main-content" class="skip-link">Skip to main content</a>
+
+  <header class="topbar">
+    <div class="topbar-inner">
+      <div class="brand-block">
+        <div class="brand-logo" aria-hidden="true">GA</div>
+        <div>
+          <div class="brand-title">GeoAttend</div>
+          <div class="brand-subtitle" id="header-college-name">ITM GIDA, Gorakhpur</div>
+        </div>
+      </div>
+
+      <div class="topbar-actions">
+        <span id="runtime-mode-badge" class="mode-badge" aria-live="polite">Connecting...</span>
+        <button type="button" id="btn-nav-student-view" class="btn btn-secondary btn-sm hidden">Student View</button>
+        <button type="button" id="btn-nav-admin-view" class="btn btn-secondary btn-sm hidden">Admin Console</button>
+        <button type="button" id="btn-logout" class="btn btn-secondary btn-sm hidden">Sign Out</button>
+      </div>
+    </div>
+  </header>
+
+  <main id="main-content" class="main-container">
+    <!-- Local Sandbox Simulator Bar: Only shown when running outside Google Apps Script for local acceptance testing -->
+    <section id="local-simulator-bar" class="simulator-panel hidden" aria-label="Local Test Simulator Controls">
+      <h4>Local Preview &amp; Acceptance Test Sandbox Mode (Not connected to live Google Sheets)</h4>
+      <p>
+        You are viewing GeoAttend locally outside Google Apps Script. All server validations (Haversine geofence, 200 m radius, 50 m accuracy, conservative boundary check, duplicate lock, and OTP rules) are simulated locally so you can test every acceptance state right now.
+      </p>
+      <div class="simulator-controls">
+        <button type="button" class="btn btn-secondary btn-sm" data-sim-gps="inside">Simulate GPS: Inside Campus (~42 m, ±12 m)</button>
+        <button type="button" class="btn btn-secondary btn-sm" data-sim-gps="outside">Simulate GPS: Outside Campus (~480 m, ±15 m)</button>
+        <button type="button" class="btn btn-secondary btn-sm" data-sim-gps="poor_accuracy">Simulate GPS: Poor Accuracy (~85 m, ±78 m)</button>
+        <button type="button" class="btn btn-secondary btn-sm" data-sim-gps="boundary">Simulate GPS: Uncertain Boundary (~182 m, ±30 m)</button>
+        <button type="button" class="btn btn-secondary btn-sm" data-sim-gps="denied">Simulate GPS: Permission Denied</button>
+        <button type="button" class="btn btn-secondary btn-sm" data-sim-gps="real">Use Real Browser GPS</button>
+      </div>
+      <div style="margin-top: 8px; color: #cbd5e1;">
+        <strong>Sample Accounts in Local Preview:</strong>
+        Student Roll: <code>2026CSE002</code> / Pass: <code>Student@123</code> |
+        Pending Student Roll: <code>2026CSE001</code> (Activate via OTP) |
+        Admin Roll: <code>ADMIN001</code> / Pass: <code>Admin@12345</code>
+      </div>
+    </section>
+
+    <!--Global Banner for Top-Level Alerts-->
+    <div id="global-alert" class="alert hidden" role="alert" aria-live="assertive"></div>
+
+    <!-- =================================================================== -->
+    <!-- SCREEN 1: LOGIN SCREEN                                              -->
+    <!-- =================================================================== -->
+    <section id="screen-login" class="auth-container" aria-labelledby="login-heading">
+      <div class="card">
+        <div class="card-header">
+          <div>
+            <h1 id="login-heading" class="card-title">Student &amp; Staff Sign In</h1>
+            <p class="card-subtitle">Sign in with your authorized ITM GIDA Roll Number to verify campus location and mark attendance.</p>
+          </div>
+        </div>
+
+        <div id="login-alert" class="alert hidden" role="alert"></div>
+
+        <form id="form-login" novalidate>
+          <div class="form-group">
+            <label for="login-roll">College Roll Number</label>
+            <input
+              type="text"
+              id="login-roll"
+              name="rollNumber"
+              autocomplete="username"
+              placeholder="e.g. 2026CSE002"
+              required
+            >
+          </div>
+
+          <div class="form-group">
+            <label for="login-password">Password</label>
+            <div class="input-wrapper">
+              <input
+                type="password"
+                id="login-password"
+                name="password"
+                autocomplete="current-password"
+                placeholder="Enter your password"
+                required
+              >
+              <button type="button" class="password-toggle-btn" id="btn-toggle-login-pass" aria-label="Show password">
+                Show
+              </button>
+            </div>
+          </div>
+
+          <button type="submit" id="btn-login-submit" class="btn btn-primary btn-block">
+            Sign In to GeoAttend
+          </button>
+        </form>
+
+        <div style="margin-top: 14px;">
+          <button type="button" id="btn-open-register" class="btn btn-secondary btn-block">
+            New Student? Register Account (Requires Admin Approval)
+          </button>
+        </div>
+
+        <div style="margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--border-subtle); display: flex; justify-content: space-between; flex-wrap: wrap; gap: 8px;">
+          <button type="button" id="link-forgot-password" class="btn-link">Forgot Password?</button>
+          <button type="button" id="link-activate-account" class="btn-link">First-Time Account Activation (OTP)</button>
+        </div>
+      </div>
+
+      <div class="card" style="padding: 16px 20px; background: var(--bg-subtle);">
+        <h2 style="font-size: 13px; font-weight: 700; color: var(--text-primary); margin-bottom: 4px;">
+          Privacy &amp; Location Verification Notice
+        </h2>
+        <p style="font-size: 12px; color: var(--text-secondary);">
+          GeoAttend requests a one-time GPS reading only when you tap <strong>Check My Location</strong> or <strong>Mark Present</strong> to verify you are within <strong>200 m</strong> of ITM GIDA, Gorakhpur. Background tracking is never used. Only the calculated distance, GPS accuracy, and server timestamp are stored for official attendance audit.
+        </p>
+      </div>
+    </section>
+
+    <!-- =================================================================== -->
+    <!-- SCREEN 1B: STUDENT SELF-REGISTRATION (PENDING ADMIN APPROVAL)       -->
+    <!-- =================================================================== -->
+    <section id="screen-register" class="auth-container hidden" aria-labelledby="register-heading">
+      <div class="card">
+        <div class="card-header">
+          <div>
+            <h1 id="register-heading" class="card-title">Student Self-Registration</h1>
+            <p class="card-subtitle">
+              Create your account with your ITM GIDA Roll Number and Password. Your account will become active as soon as the Administrator approves it.
+            </p>
+          </div>
+        </div>
+
+        <div id="register-alert" class="alert hidden" role="alert"></div>
+
+        <form id="form-register" novalidate>
+          <div class="form-row">
+            <div class="form-group">
+              <label for="reg-roll">College Roll Number *</label>
+              <input type="text" id="reg-roll" placeholder="e.g. 2026CSE010" required>
+            </div>
+            <div class="form-group">
+              <label for="reg-name">Full Name *</label>
+              <input type="text" id="reg-name" placeholder="Enter your full name" required>
+            </div>
+          </div>
+
+          <div class="form-row">
+            <div class="form-group">
+              <label for="reg-course">Course</label>
+              <input type="text" id="reg-course" value="B.Tech CSE" placeholder="e.g. B.Tech CSE">
+            </div>
+            <div class="form-group">
+              <label for="reg-semester">Semester</label>
+              <input type="text" id="reg-semester" value="6" placeholder="e.g. 6">
+            </div>
+            <div class="form-group">
+              <label for="reg-section">Section</label>
+              <input type="text" id="reg-section" value="A" placeholder="e.g. A">
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label for="reg-email">Email Address (for Forgot Password OTP) *</label>
+            <input type="email" id="reg-email" placeholder="your.email@gmail.com" required>
+          </div>
+
+          <div class="form-group">
+            <label for="reg-password">Create Password (minimum 8 characters) *</label>
+            <input type="password" id="reg-password" autocomplete="new-password" placeholder="At least 8 characters" required>
+          </div>
+
+          <div class="form-group">
+            <label for="reg-confirm-password">Confirm Password *</label>
+            <input type="password" id="reg-confirm-password" autocomplete="new-password" placeholder="Re-enter password" required>
+          </div>
+
+          <button type="submit" id="btn-register-submit" class="btn btn-success btn-block">
+            Submit Registration for Admin Approval
+          </button>
+        </form>
+
+        <div style="margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--border-subtle);">
+          <button type="button" id="btn-back-from-register" class="btn-link">&larr; Back to Sign In</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- =================================================================== -->
+    <!-- SCREEN 2: FORGOT PASSWORD & FIRST-TIME OTP ACTIVATION               -->
+    <!-- =================================================================== -->
+    <section id="screen-recovery" class="auth-container hidden" aria-labelledby="recovery-heading">
+      <div class="card">
+        <div class="card-header">
+          <div>
+            <h1 id="recovery-heading" class="card-title">Reset Password via Email OTP</h1>
+            <p id="recovery-subtitle" class="card-subtitle">
+              A 6-digit verification code will be sent to the pre-verified email stored in the official ITM GIDA student roster.
+            </p>
+          </div>
+        </div>
+
+        <div id="recovery-alert" class="alert hidden" role="alert"></div>
+
+        <!-- Step 1: Request OTP by Roll Number -->
+        <form id="form-request-otp" novalidate>
+          <div class="form-group">
+            <label for="recovery-roll">College Roll Number</label>
+            <input
+              type="text"
+              id="recovery-roll"
+              placeholder="Enter your Roll Number (e.g. 2026CSE001)"
+              required
+            >
+            <p class="field-hint">
+              For security, you cannot enter a custom email address here. The OTP is delivered strictly to the roster email on file.
+            </p>
+          </div>
+
+          <button type="submit" id="btn-send-otp" class="btn btn-primary btn-block">
+            Send 6-Digit OTP to Roster Email
+          </button>
+        </form>
+
+        <!-- Step 2: Enter OTP + New Password -->
+        <form id="form-verify-otp" class="hidden" style="margin-top: 20px; padding-top: 18px; border-top: 1px solid var(--border-subtle);" novalidate>
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; flex-wrap: wrap; gap: 6px;">
+            <span class="badge badge-neutral" id="otp-expiry-timer">OTP Expires in: 05:00</span>
+            <button type="button" id="btn-resend-otp" class="btn btn-secondary btn-sm" disabled>
+              Resend OTP (60s)
+            </button>
+          </div>
+
+          <div class="form-group">
+            <label for="recovery-otp">6-Digit OTP Code</label>
+            <input
+              type="text"
+              id="recovery-otp"
+              inputmode="numeric"
+              pattern="[0-9]{6}"
+              maxlength="6"
+              placeholder="6-digit code from email"
+              required
+            >
+          </div>
+
+          <div class="form-group">
+            <label for="recovery-new-password">New Password (minimum 8 characters)</label>
+            <div class="input-wrapper">
+              <input
+                type="password"
+                id="recovery-new-password"
+                autocomplete="new-password"
+                placeholder="At least 8 characters"
+                required
+              >
+              <button type="button" class="password-toggle-btn" id="btn-toggle-recovery-pass">Show</button>
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label for="recovery-confirm-password">Confirm New Password</label>
+            <input
+              type="password"
+              id="recovery-confirm-password"
+              autocomplete="new-password"
+              placeholder="Re-enter new password"
+              required
+            >
+          </div>
+
+          <button type="submit" id="btn-verify-otp-submit" class="btn btn-success btn-block">
+            Verify OTP &amp; Save Password
+          </button>
+        </form>
+
+        <div style="margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--border-subtle);">
+          <button type="button" id="btn-back-to-login" class="btn-link">&larr; Back to Sign In</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- =================================================================== -->
+    <!-- SCREEN 3: STUDENT DASHBOARD                                         -->
+    <!-- =================================================================== -->
+    <section id="screen-student-dashboard" class="hidden" aria-labelledby="student-dash-heading">
+      <!-- Student Profile & Today Status Summary -->
+      <div class="card">
+        <div class="card-header">
+          <div>
+            <h1 id="student-dash-heading" class="card-title">Student Attendance Dashboard</h1>
+            <p class="card-subtitle" id="student-welcome-line">Welcome</p>
+          </div>
+          <div>
+            <span id="today-status-badge" class="badge badge-neutral">Checking Today's Status...</span>
+          </div>
+        </div>
+
+        <div class="stats-grid">
+          <div class="stat-box">
+            <div class="stat-label">Student Name &amp; Roll</div>
+            <div class="stat-value" id="profile-roll-display" style="font-size: 18px;">—</div>
+            <div class="stat-meta" id="profile-name-display">—</div>
+          </div>
+
+          <div class="stat-box">
+            <div class="stat-label">Course / Sem / Section</div>
+            <div class="stat-value" id="profile-course-display" style="font-size: 18px;">—</div>
+            <div class="stat-meta" id="profile-email-display">—</div>
+          </div>
+
+          <div class="stat-box">
+            <div class="stat-label">Today's Attendance (IST)</div>
+            <div class="stat-value" id="today-status-text" style="font-size: 18px;">Not Marked</div>
+            <div class="stat-meta" id="today-timestamp-text">Verify campus location below</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Geofence Verification & Mark Present Panel -->
+      <div class="grid-2">
+        <div class="card">
+          <div class="card-header">
+            <div>
+              <h2 class="card-title">Step 1: Campus Geofence Check</h2>
+              <p class="card-subtitle" id="geofence-rule-subtitle">
+                Must be within 200 m of ITM GIDA centre with GPS accuracy &le; 50 m.
+              </p>
+            </div>
+            <span id="geo-eligibility-badge" class="badge badge-neutral">Not Checked</span>
+          </div>
+
+          <div id="geo-status-alert" class="alert alert-info" role="status" aria-live="polite">
+            Tap <strong>Check My Location</strong> below and allow browser location access to verify your distance from ITM GIDA, Gorakhpur.
+          </div>
+
+          <div class="stats-grid" style="grid-template-columns: repeat(2, 1fr);">
+            <div class="stat-box">
+              <div class="stat-label">Distance from Centre</div>
+              <div class="stat-value" id="geo-distance-value">— m</div>
+              <div class="stat-meta" id="geo-radius-limit-meta">Max allowed: 200 m</div>
+            </div>
+            <div class="stat-box">
+              <div class="stat-label">GPS Accuracy (&pm;)</div>
+              <div class="stat-value" id="geo-accuracy-value">— m</div>
+              <div class="stat-meta" id="geo-accuracy-limit-meta">Required: &le; 50 m</div>
+            </div>
+          </div>
+
+          <div style="display: flex; flex-direction: column; gap: 10px;">
+            <button type="button" id="btn-check-location" class="btn btn-primary btn-block">
+              Check My Location
+            </button>
+
+            <!-- Core Rule: Disabled until accurate reading inside 200m geofence is verified -->
+            <button type="button" id="btn-mark-present" class="btn btn-success btn-block" disabled>
+              Mark Present (Requires Eligible Campus Location)
+            </button>
+          </div>
+
+          <p class="field-hint" style="margin-top: 10px;">
+            <strong>Note:</strong> Clicking <em>Mark Present</em> performs a fresh GPS reading and sends coordinates to the server for independent Haversine verification.
+          </p>
+        </div>
+
+        <!-- Student's Own Attendance History -->
+        <div class="card">
+          <div class="card-header">
+            <div>
+              <h2 class="card-title">My Attendance History</h2>
+              <p class="card-subtitle">Recent server-verified attendance records for your roll number.</p>
+            </div>
+          </div>
+
+          <div class="table-responsive">
+            <table aria-label="My Attendance History">
+              <thead>
+                <tr>
+                  <th>Date (IST)</th>
+                  <th>Server Time</th>
+                  <th>Status</th>
+                  <th>Distance</th>
+                  <th>Accuracy</th>
+                </tr>
+              </thead>
+              <tbody id="student-history-tbody">
+                <tr>
+                  <td colspan="5" style="text-align: center; color: var(--text-muted);">No attendance records yet.</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- =================================================================== -->
+    <!-- SCREEN 4: PROTECTED ADMIN DASHBOARD                                 -->
+    <!-- =================================================================== -->
+    <section id="screen-admin-dashboard" class="hidden" aria-labelledby="admin-dash-heading">
+      <div class="card">
+        <div class="card-header">
+          <div>
+            <h1 id="admin-dash-heading" class="card-title">ITM GIDA — GeoAttend Admin Console</h1>
+            <p class="card-subtitle">Manage attendance reports, authorized student roster, geofence parameters, and security audit logs.</p>
+          </div>
+          <button type="button" id="btn-admin-refresh" class="btn btn-secondary btn-sm">Refresh Data</button>
+        </div>
+
+        <!-- Admin Navigation Tabs -->
+        <div class="tabs-nav" role="tablist">
+          <button type="button" class="tab-btn active" data-admin-tab="tab-reports" role="tab" aria-selected="true">
+            Attendance Reports &amp; CSV Export
+          </button>
+          <button type="button" class="tab-btn" data-admin-tab="tab-roster" role="tab" aria-selected="false">
+            Student Roster Provisioning
+          </button>
+          <button type="button" class="tab-btn" data-admin-tab="tab-settings" role="tab" aria-selected="false">
+            Geofence &amp; Window Settings
+          </button>
+          <button type="button" class="tab-btn" data-admin-tab="tab-audit" role="tab" aria-selected="false">
+            Security &amp; Audit Logs
+          </button>
+        </div>
+
+        <div id="admin-feedback-alert" class="alert hidden" role="alert"></div>
+
+        <!-- TAB 1: ATTENDANCE REPORTS -->
+        <div id="tab-reports" class="admin-tab-pane">
+          <div class="stats-grid">
+            <div class="stat-box">
+              <div class="stat-label">Present Records (Selected Period)</div>
+              <div class="stat-value" id="admin-stat-present">0</div>
+              <div class="stat-meta">Verified campus check-ins</div>
+            </div>
+            <div class="stat-box">
+              <div class="stat-label">Eligible Active Students</div>
+              <div class="stat-value" id="admin-stat-cohort">0</div>
+              <div class="stat-meta">Matching current cohort filter</div>
+            </div>
+            <div class="stat-box">
+              <div class="stat-label">Attendance Percentage</div>
+              <div class="stat-value" id="admin-stat-percentage">0%</div>
+              <div class="stat-meta" id="admin-stat-denominator-note">Denominator: —</div>
+            </div>
+          </div>
+
+          <form id="form-admin-filter" class="card" style="background: var(--bg-subtle); padding: 16px; margin-bottom: 16px;">
+            <div class="form-row">
+              <div class="form-group">
+                <label for="filter-start-date">From Date (IST)</label>
+                <input type="date" id="filter-start-date">
+              </div>
+              <div class="form-group">
+                <label for="filter-end-date">To Date (IST)</label>
+                <input type="date" id="filter-end-date">
+              </div>
+              <div class="form-group">
+                <label for="filter-search">Roll No / Student Name</label>
+                <input type="text" id="filter-search" placeholder="Search roll or name...">
+              </div>
+              <div class="form-group">
+                <label for="filter-course">Course</label>
+                <input type="text" id="filter-course" placeholder="e.g. B.Tech CSE">
+              </div>
+              <div class="form-group">
+                <label for="filter-semester">Semester</label>
+                <input type="text" id="filter-semester" placeholder="e.g. 6">
+              </div>
+              <div class="form-group">
+                <label for="filter-section">Section</label>
+                <input type="text" id="filter-section" placeholder="e.g. A">
+              </div>
+            </div>
+            <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+              <button type="submit" class="btn btn-primary btn-sm">Apply Filters</button>
+              <button type="button" id="btn-export-csv" class="btn btn-secondary btn-sm">Export Filtered Report to CSV</button>
+            </div>
+          </form>
+
+          <div class="table-responsive">
+            <table aria-label="Filtered Attendance Report">
+              <thead>
+                <tr>
+                  <th>Date</th>
+                  <th>Server Timestamp</th>
+                  <th>Roll Number</th>
+                  <th>Student Name</th>
+                  <th>Course / Sem / Sec</th>
+                  <th>Status</th>
+                  <th>Distance (m)</th>
+                  <th>Accuracy (m)</th>
+                </tr>
+              </thead>
+              <tbody id="admin-report-tbody">
+                <tr>
+                  <td colspan="8" style="text-align: center; color: var(--text-muted);">Loading attendance records...</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- TAB 2: STUDENT ROSTER MANAGEMENT -->
+        <div id="tab-roster" class="admin-tab-pane hidden">
+          <div class="grid-2">
+            <div>
+              <h3 style="font-size: 15px; font-weight: 700; margin-bottom: 10px;">Add or Update Authorized Student / Admin</h3>
+              <p class="field-hint" style="margin-bottom: 14px;">
+                Students cannot self-register arbitrary roll numbers. Add their official roll number and pre-verified email here. They can then activate their account using <strong>First-Time Account Activation (OTP)</strong>.
+              </p>
+              <form id="form-admin-student" novalidate>
+                <div class="form-row">
+                  <div class="form-group">
+                    <label for="roster-roll">Roll Number *</label>
+                    <input type="text" id="roster-roll" placeholder="e.g. 2026CSE005" required>
+                  </div>
+                  <div class="form-group">
+                    <label for="roster-name">Full Name *</label>
+                    <input type="text" id="roster-name" placeholder="Student Full Name" required>
+                  </div>
+                </div>
+                <div class="form-row">
+                  <div class="form-group">
+                    <label for="roster-course">Course</label>
+                    <input type="text" id="roster-course" placeholder="B.Tech CSE" value="B.Tech CSE">
+                  </div>
+                  <div class="form-group">
+                    <label for="roster-semester">Semester</label>
+                    <input type="text" id="roster-semester" placeholder="6" value="6">
+                  </div>
+                  <div class="form-group">
+                    <label for="roster-section">Section</label>
+                    <input type="text" id="roster-section" placeholder="A" value="A">
+                  </div>
+                </div>
+                <div class="form-group">
+                  <label for="roster-email">Pre-Verified Email Address (for OTP recovery) *</label>
+                  <input type="email" id="roster-email" placeholder="student@itmgida.edu.in" required>
+                </div>
+                <div class="form-row">
+                  <div class="form-group">
+                    <label for="roster-status">Account Status</label>
+                    <select id="roster-status">
+                      <option value="PENDING">PENDING (Needs OTP Activation)</option>
+                      <option value="ACTIVE">ACTIVE</option>
+                      <option value="DISABLED">DISABLED</option>
+                    </select>
+                  </div>
+                  <div class="form-group">
+                    <label for="roster-role">System Role</label>
+                    <select id="roster-role">
+                      <option value="STUDENT">STUDENT</option>
+                      <option value="ADMIN">ADMIN</option>
+                    </select>
+                  </div>
+                </div>
+                <button type="submit" id="btn-save-student" class="btn btn-primary">Save Roster Record</button>
+              </form>
+            </div>
+
+            <div>
+              <h3 style="font-size: 15px; font-weight: 700; margin-bottom: 10px;">Authorized Roster Directory</h3>
+              <div class="table-responsive">
+                <table aria-label="Authorized Student Roster">
+                  <thead>
+                    <tr>
+                      <th>Roll No</th>
+                      <th>Name</th>
+                      <th>Course/Sem/Sec</th>
+                      <th>Verified Email</th>
+                      <th>Status</th>
+                      <th>Role</th>
+                      <th>Action</th>
+                    </tr>
+                  </thead>
+                  <tbody id="admin-roster-tbody">
+                    <tr>
+                      <td colspan="7" style="text-align: center;">Loading roster...</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- TAB 3: GEOFENCE & ATTENDANCE SETTINGS -->
+        <div id="tab-settings" class="admin-tab-pane hidden">
+          <form id="form-admin-settings" style="max-width: 680px;" novalidate>
+            <div class="form-group">
+              <label for="setting-college-name">Institution Name</label>
+              <input type="text" id="setting-college-name" required>
+            </div>
+            <div class="form-row">
+              <div class="form-group">
+                <label for="setting-lat">Campus Centre Latitude</label>
+                <input type="number" step="any" id="setting-lat" required>
+              </div>
+              <div class="form-group">
+                <label for="setting-lng">Campus Centre Longitude</label>
+                <input type="number" step="any" id="setting-lng" required>
+              </div>
+            </div>
+            <div class="form-row">
+              <div class="form-group">
+                <label for="setting-radius">Allowed Geofence Radius (metres)</label>
+                <input type="number" id="setting-radius" min="10" max="5000" required>
+              </div>
+              <div class="form-group">
+                <label for="setting-accuracy">Max Location Accuracy Threshold (metres)</label>
+                <input type="number" id="setting-accuracy" min="5" max="500" required>
+              </div>
+            </div>
+            <div class="form-group">
+              <label for="setting-boundary-policy">Boundary Uncertainty Policy</label>
+              <select id="setting-boundary-policy">
+                <option value="CONSERVATIVE">CONSERVATIVE (Require Distance + GPS Uncertainty &le; Allowed Radius)</option>
+                <option value="CENTRE_ONLY">CENTRE_ONLY (Require Centre Distance &le; Allowed Radius &amp; Accuracy &le; Threshold)</option>
+              </select>
+            </div>
+            <div class="form-row">
+              <div class="form-group">
+                <label for="setting-start-time">Attendance Window Start (IST)</label>
+                <input type="time" id="setting-start-time">
+              </div>
+              <div class="form-group">
+                <label for="setting-end-time">Attendance Window End (IST)</label>
+                <input type="time" id="setting-end-time">
+              </div>
+            </div>
+            <div class="form-group" style="display: flex; align-items: center; gap: 8px; margin-top: 6px;">
+              <input type="checkbox" id="setting-enforce-window" style="width: 16px; height: 16px;">
+              <label for="setting-enforce-window" style="margin: 0;">Strictly enforce daily attendance time window</label>
+            </div>
+
+            <button type="submit" id="btn-save-settings" class="btn btn-primary">Save Geofence &amp; System Settings</button>
+          </form>
+        </div>
+
+        <!-- TAB 4: SECURITY & AUDIT LOGS -->
+        <div id="tab-audit" class="admin-tab-pane hidden">
+          <p class="field-hint" style="margin-bottom: 12px;">
+            Displays server-side authentication, OTP, geofence rejection, and administrative events. Passwords, OTPs, and session tokens are never logged.
+          </p>
+          <div class="table-responsive">
+            <table aria-label="Security Audit Logs">
+              <thead>
+                <tr>
+                  <th>Event ID</th>
+                  <th>Timestamp (IST)</th>
+                  <th>Event Type</th>
+                  <th>Student ID</th>
+                  <th>Outcome</th>
+                  <th>Reason / Details</th>
+                </tr>
+              </thead>
+              <tbody id="admin-audit-tbody">
+                <tr>
+                  <td colspan="6" style="text-align: center;">Loading audit events...</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <div>
+      <strong>GeoAttend</strong> &mdash; ITM GIDA, Gorakhpur, Uttar Pradesh, India (26.742681&deg; N, 83.273421&deg; E &bull; 200 m Campus Geofence)
+    </div>
+    <div style="margin-top: 4px;">
+      Browser geolocation is an assistive verification control and can be affected by hardware/OS environment. All attendance records are validated on the server.
+    </div>
+  </footer>
+
+  <?!= include('Client'); ?>
+</body>
+</html>
+
